@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "name": "archer",
+  "description": "Alternative Gainesville RTS app",
+  "author": "Daniel Li <inflmts@gmail.com>",
+  "license": "MIT",
+  "type": "module"
+}
