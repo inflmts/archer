@@ -4,5 +4,8 @@
   "description": "Alternative Gainesville RTS app",
   "author": "Daniel Li <inflmts@gmail.com>",
   "license": "MIT",
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "vite": "^6.2.5"
+  }
 }
