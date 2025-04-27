@@ -1,29 +1,31 @@
 import { html, svg, api } from './util.js';
-import { scale, offset } from './map.js';
-import { stopFor } from './stops.js';
+import { map, scale, offset } from './map.js';
+import { addStop } from './stops.js';
 
 const container = document.querySelector('#routes');
 
-export let routes = null;
-
-export function openRoutes() {
+function openRoutes() {
   container.style.display = null;
+  map.addEventListener('pointerdown', closeRoutes);
 }
 
-export function closeRoutes() {
+function closeRoutes() {
   container.style.display = 'none';
+  map.removeEventListener('pointerdown', closeRoutes);
 }
 
-export function toggleRoutes() {
+function toggleRoutes() {
   if (container.style.display === 'none')
-    container.style.display = null;
+    openRoutes();
   else
-    container.style.display = 'none';
+    closeRoutes();
 }
 
 function handleClick(ev) {
   ev.currentTarget.route.toggle();
 }
+
+let routes = null;
 
 class Route {
 
@@ -94,11 +96,12 @@ class Route {
       const element = svg('polyline', {
         'fill': 'none',
         'stroke': this.color,
-        'stroke-width': '4'
+        'stroke-width': '4',
+        'stroke-linejoin': 'bevel'
       });
       const points = path.pt.map(({ lon, lat, stpid, stpnm }) => {
         if (stpid) {
-          const stop = stopFor(stpid, stpnm, lon, lat);
+          const stop = addStop(stpid, stpnm, lon, lat);
           this.stops.push(stop);
           if (this.enabled)
             stop.ref();

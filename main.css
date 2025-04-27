@@ -78,6 +78,16 @@ button {
   overflow: hidden;
 }
 
+#predictions {
+  position: absolute;
+  padding: 0.25rem;
+  top: 0;
+  left: 0;
+  width: 20rem;
+  height: 100%;
+  max-width: calc(100% - 5rem);
+}
+
 #status {
   pointer-events: none;
   position: fixed;
