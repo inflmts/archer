@@ -7,8 +7,10 @@
 }
 
 body {
-  font-family: sans-serif;
+  font-family: system-ui, sans-serif;
+  color: black;
   background-color: #eee;
+  touch-action: none;
 }
 
 html, body, #map {
@@ -19,34 +21,81 @@ html, body, #map {
 button {
   background-color: initial;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
+
+svg {
+  display: block;
+}
+
+/* map */
 
 #map {
-  touch-action: none;
-  display: block;
+  background-image: url('data:image/svg+xml,\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">\
+<rect width="11" height="11" fill="none" stroke="%23bbb" vector-effect="non-scaling-stroke" />\
+</svg>');
 }
 
-#routes-open {
-  display: block;
-  position: absolute;
-  bottom: 1rem;
-  right: 1rem;
-  width: 3rem;
-  height: 3rem;
-  font-weight: bold;
-  background-color: white;
-  border: 4px solid black;
+#map-content {
+  pointer-events: none;
 }
+
+.map-route {
+  vector-effect: non-scaling-stroke;
+  fill: none;
+  stroke-width: 4px;
+  stroke-linejoin: bevel;
+}
+
+.map-stop {
+  fill: black;
+  r: var(--stop-radius);
+}
+
+#map-content > .map-stop {
+  fill: red;
+  r: var(--stop-radius-selected);
+}
+
+.map-vehicle {
+  transform: var(--transform) var(--inverse-transform);
+}
+
+.map-vehicle path {
+  stroke: black;
+  stroke-width: 2px;
+}
+
+.map-vehicle text {
+  font-size: 16px;
+  font-weight: bold;
+  text-anchor: middle;
+  fill: white;
+}
+
+/* routes pane */
 
 #routes {
   position: absolute;
-  padding: 0.25rem;
+  border-left: 1px solid #ddd;
   top: 0;
-  left: 0;
-  width: 20rem;
+  right: 0;
+  width: 24rem;
   height: 100%;
   max-width: calc(100% - 5rem);
   background-color: white;
+  display: none;
+}
+
+.routes-open #routes {
+  display: initial;
+}
+
+#routes-list {
+  padding-bottom: 5rem;
+  width: 100%;
+  height: 100%;
   overflow-y: auto;
 }
 
@@ -54,47 +103,190 @@ button {
   display: flex;
   align-items: center;
   white-space: nowrap;
+  border-width: 0 0 0.125rem 0.5rem;
   border-style: solid;
-  border-width: 0.25rem;
-  padding: 0.5rem;
+  border-color: var(--color);
+  padding: 0 0.25rem;
   width: 100%;
-}
-
-* + .route {
-  margin-top: 0.25rem;
-}
-
-.route-enabled {
-  font-weight: bold;
+  height: 3rem;
+  text-align: center;
 }
 
 .route-id {
-  margin-right: 0.5rem;
-  min-width: 1.5rem;
+  font-size: 1.25rem;
+  font-weight: bold;
+  min-width: 3rem;
 }
 
 .route-name {
-  text-overflow: ellipsis;
+  flex: 0 auto;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.125rem 0.25rem;
 }
+
+.route-enabled .route-name {
+  background-color: black;
+  color: white;
+}
+
+/* predictions pane */
 
 #predictions {
   position: absolute;
   padding: 0.25rem;
   top: 0;
+  bottom: 0;
   left: 0;
-  width: 20rem;
-  height: 100%;
-  max-width: calc(100% - 5rem);
+  right: 0;
+  overflow-y: auto;
+  pointer-events: none;
+  display: none;
 }
 
+.stop-selected #predictions {
+  display: initial;
+}
+
+#predictions > :not(#predictions-list) {
+  padding: 0.25rem 0.5rem;
+  width: fit-content;
+  background-color: white;
+}
+
+#predictions h1 {
+  font-weight: bold;
+  color: gray;
+}
+
+#predictions-stop-name {
+  font-size: 1.5em;
+  color: black;
+}
+
+#predictions-list {
+  margin-top: 0.5rem;
+}
+
+.prediction {
+  display: flex;
+  border-bottom: 0.125rem solid var(--color);
+  padding-right: 0.25rem;
+  width: fit-content;
+  background-color: rgb(255 255 255 / 0.9);
+}
+
+.prediction-other {
+  color: gray;
+  background-color: rgb(224 224 224 / 0.9);
+}
+
+.prediction::before {
+  content: '';
+  display: block;
+  margin-right: 0.25rem;
+  width: 0.75rem;
+  background-color: var(--color);
+}
+
+.prediction-route {
+  padding: 0.125rem 0.25rem;
+  min-width: 2.5rem;
+}
+
+.prediction-time {
+  padding: 0.125rem 0.25rem;
+  min-width: 3rem;
+}
+
+.prediction-due {
+  font-weight: bold;
+}
+
+.prediction-dest {
+  padding: 0.125rem 0.25rem;
+  flex-grow: 1;
+}
+
+/*
 #status {
   pointer-events: none;
-  position: fixed;
+  position: absolute;
   top: 0.25rem;
   right: 0.25rem;
   width: 0.75rem;
   height: 0.75rem;
   border-radius: 50%;
   background-color: #0c0;
+}
+
+#status.status-blink {
+  background-color: #0f0;
+}
+*/
+
+/* controls */
+
+body > button {
+  position: absolute;
+  width: 3rem;
+  height: 3rem;
+  font-weight: bold;
+  border-radius: 0.5rem;
+  border: 0.25rem solid black;
+  background-color: white;
+  background-size: 1.25rem;
+  background-repeat: no-repeat;
+  background-position: center;
+  display: none;
+}
+
+#routes-button {
+  display: block;
+  bottom: 1rem;
+  right: 1rem;
+  background-image: url('data:image/svg+xml,\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
+fill="none" stroke="black" stroke-width="4">\
+<circle cx="8" cy="8" r="6" />\
+<path d="M 12,12 28,28" />\
+<circle cx="32" cy="32" r="6" />\
+</svg>');
+}
+
+#routes-clear-button {
+  bottom: 1rem;
+  right: 5rem;
+  background-image: url('data:image/svg+xml,\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
+fill="none" stroke="black" stroke-width="4">\
+<path d="M 20,20 L 38,38 M 38,20 20,38 M 4,4 H 34 M 4,12 H 34 M 4,20 H 14 M 4,28 H 14" />\
+</svg>');
+}
+
+#deselect-stop-button {
+  bottom: 5rem;
+  right: 1rem;
+  background-image: url('data:image/svg+xml,\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
+fill="none" stroke="black" stroke-width="4">\
+<path d="M 20,20 L 38,38 M 38,20 20,38 M 30,16 A 14,14,270,1,0,16,30" />\
+</svg>');
+}
+
+#refresh-button {
+  bottom: 1rem;
+  right: 9rem;
+  background-image: url('data:image/svg+xml,\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
+fill="none" stroke="black" stroke-width="4">\
+<path d="M 6,20 A 14,14,270,1,0,20,6 M 20,20 V 3 H 38" />\
+</svg>');
+}
+
+.routes-open #routes-clear-button,
+.stop-selected #deselect-stop-button:not(.routes-open *),
+.routes-open #refresh-button {
+  display: block;
 }

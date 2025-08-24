@@ -1,147 +1,152 @@
-import { html, svg } from './util.js';
-import { loadRoutes, updateRouteTransforms } from './routes.js';
-import { updateStopTransforms } from './stops.js';
+import { map } from './util.js';
+import { closeRoutes } from './routes.js';
+import { currentStop, deselectStop, getNearestStop } from './stops.js';
 
-export const map = document.querySelector('#map');
-const contentContainer = document.querySelector('#map-content');
-const routeContainer = document.querySelector('#route-layer');
+const content = document.querySelector('#map-content');
 
-export let scale = 10000;
-export const offset = {
-  x: 82.347 * 1.15 * scale,
-  y: 29.64513 * scale
-};
+const MIN_SCALE = 2000;
+const MAX_SCALE = 200000;
+const PAN_THRESHOLD = 10;
 
-//function setOffset(x, y) {
-//  offset.x = x;
-//  offset.y = y;
-//  routeContainer.setAttribute('transform', `translate(${x}, ${y})`);
-//}
-
-//function updateTransform() {
-//  routeContainer.setAttribute('transform', `matrix(${scale}, 0, 0, ${scale}, ${offset.x}, ${offset.y})`);
-//  routeContainer.setAttribute('stroke-width', `${4 / scale}`);
-//}
+let scale = 10000;
+let tx = innerWidth / 2 | 0;
+let ty = innerHeight / 2 | 0;
 
 function updateTransform() {
-  updateRouteTransforms();
-  updateStopTransforms();
+  map.style.backgroundSize = `${scale * 0.005}px`;
+  map.style.backgroundPosition = `${tx}px ${ty}px`;
+  content.setAttribute('transform', `matrix(${scale}, 0, 0, ${scale}, ${tx}, ${ty})`);
+  content.style.setProperty('--stop-radius', `${4 / scale}px`);
+  content.style.setProperty('--stop-radius-selected', `${8 / scale}px`);
+  content.style.setProperty('--inverse-transform', `scale(${1 / scale})`);
 }
 
-let gesture = null;
+updateTransform();
 
-class Pan {
+let gesture, p1, p1x, p1y, p2, p2x, p2y;
 
-  constructor(p, x, y) {
-    this.p = p;
-    this.x = x;
-    this.y = y;
-  }
-
+const idle = {
   down(p, x, y) {
-    return new Pinch(this.p, this.x, this.y, p, x, y);
+    gesture = pan;
+    p1 = p;
+    p1x = x;
+    p1y = y;
+    pan.moved = false;
+    closeRoutes();
+    deselectStop();
   }
+};
 
+const pan = {
+  down(p, x, y) {
+    gesture = pinch;
+    p2 = p;
+    p2x = x;
+    p2y = y;
+    pinch.dist = Math.hypot(p2x - p1x, p2y - p1y);
+  },
   move(p, x, y) {
-    if (p === this.p) {
-      offset.x += x - this.x;
-      offset.y += y - this.y;
-      this.x = x;
-      this.y = y;
-      updateTransform();
-    }
-    return this;
-  }
-
-  up(p) {
-    if (p === this.p)
-      return null;
-    else
-      return this;
-  }
-
-}
-
-class Pinch {
-
-  constructor(p1, x1, y1, p2, x2, y2) {
-    this.p1 = p1;
-    this.x1 = x1;
-    this.y1 = y1;
-    this.p2 = p2;
-    this.x2 = x2;
-    this.y2 = y2;
-    this.dist = Math.hypot(this.x2 - this.x1, this.y2 - this.y1);
-  }
-
-  _update(x1, y1, x2, y2) {
-    const dist = Math.hypot(x2 - x1, y2 - y1);
-    scale *= dist / this.dist;
-    offset.x = (offset.x - (this.x1 + this.x2) / 2) * dist / this.dist + (x1 + x2) / 2;
-    offset.y = (offset.y - (this.y1 + this.y2) / 2) * dist / this.dist + (y1 + y2) / 2;
-    this.x1 = x1;
-    this.y1 = y1;
-    this.x2 = x2;
-    this.y2 = y2;
-    this.dist = dist;
+    if (p !== p1 || (
+      !this.moved &&
+      Math.abs(x - p1x) < PAN_THRESHOLD &&
+      Math.abs(y - p1y) < PAN_THRESHOLD
+    )) return;
+    this.moved = true;
+    tx += x - p1x;
+    ty += y - p1y;
+    p1x = x;
+    p1y = y;
     updateTransform();
-  }
-
-  down() {
-    return null;
-  }
-
-  move(p, x, y) {
-    if (p === this.p1)
-      this._update(x, y, this.x2, this.y2);
-    else if (p === this.p2)
-      this._update(this.x1, this.y1, x, y);
-    return this;
-  }
-
+  },
   up(p) {
-    if (p === this.p1)
-      return new Pan(this.p2, this.x2, this.y2);
-    else if (p === this.p2)
-      return new Pan(this.p1, this.x1, this.y1);
-    else
-      return this;
+    if (p !== p1)
+      return;
+    gesture = idle;
+    if (this.moved)
+      return;
+    const stop = getNearestStop((p1x - tx) / scale, (p1y - ty) / scale);
+    if (stop) {
+      tx = innerWidth * 0.6 - stop.x * scale;
+      ty = innerHeight * 0.6 - stop.y * scale;
+      updateTransform();
+      stop.select();
+    }
+  }
+}
+
+const pinch = {
+  down() {
+    gesture = idle;
+  },
+  move(p, x, y) {
+    const o1x = p1x, o1y = p1y;
+    const o2x = p2x, o2y = p2y;
+    if (p === p1) {
+      if (p1x === x && p1y === y)
+        return;
+      p1x = x;
+      p1y = y;
+    } else if (p === p2) {
+      if (p2x === x && p2y === y)
+        return;
+      p2x = x;
+      p2y = y;
+    } else {
+      return;
+    }
+    const oldDist = this.dist;
+    const oldScale = scale;
+    this.dist = Math.hypot(p2x - p1x, p2y - p1y);
+    scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * this.dist / oldDist));
+    tx = (tx - (o1x + o2x) / 2) * scale / oldScale + (p1x + p2x) / 2;
+    ty = (ty - (o1y + o2y) / 2) * scale / oldScale + (p1y + p2y) / 2;
+    updateTransform();
+  },
+  up(p) {
+    if (p === p1) {
+      gesture = pan;
+      p1 = p2;
+      p1x = p2x;
+      p1y = p2y;
+      pan.moved = true;
+    } else if (p === p2) {
+      gesture = pan;
+      pan.moved = true;
+    }
   }
 
 }
+
+gesture = idle;
 
 function handlePointerDown(ev) {
-  ev.preventDefault();
-  if (gesture)
-    gesture = gesture.down(ev.pointerId, ev.clientX, ev.clientY);
-  else
-    gesture = new Pan(ev.pointerId, ev.clientX, ev.clientY);
+  if (gesture.down)
+    gesture.down(ev.pointerId, ev.offsetX, ev.offsetY);
 }
 
 function handlePointerMove(ev) {
-  ev.preventDefault();
-  if (gesture)
-    gesture = gesture.move(ev.pointerId, ev.clientX, ev.clientY);
+  if (gesture.move)
+    gesture.move(ev.pointerId, ev.offsetX, ev.offsetY);
 }
 
 function handlePointerUp(ev) {
-  ev.preventDefault();
-  if (gesture)
-    gesture = gesture.up(ev.pointerId, ev.clientX, ev.clientY);
+  if (gesture.up)
+    gesture.up(ev.pointerId, ev.offsetX, ev.offsetY);
+}
+
+function handleWheel(ev) {
+  const oldScale = scale;
+  scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * Math.pow(2, -ev.deltaY * 0.01)));
+  if (scale === oldScale)
+    return;
+  tx = (tx - ev.offsetX) * scale / oldScale + ev.offsetX;
+  ty = (ty - ev.offsetY) * scale / oldScale + ev.offsetY;
+  updateTransform();
 }
 
 map.addEventListener('pointerdown', handlePointerDown);
 map.addEventListener('pointermove', handlePointerMove);
 map.addEventListener('pointerup', handlePointerUp);
 map.addEventListener('pointerleave', handlePointerUp);
-
-map.addEventListener('wheel', (ev) => {
-  const oldScale = scale;
-  scale *= Math.pow(2, -ev.deltaY * 0.01);
-  offset.x = (offset.x - ev.clientX) * scale / oldScale + ev.clientX;
-  offset.y = (offset.y - ev.clientY) * scale / oldScale + ev.clientY;
-  updateRouteTransforms();
-  updateStopTransforms();
-}, { passive: true });
-
-loadRoutes(routeContainer);
+map.addEventListener('pointercancel', handlePointerUp);
+map.addEventListener('wheel', handleWheel, { passive: true });

@@ -7,14 +7,28 @@
   <link rel="stylesheet" href="main.css">
   <script type="module" src="src/main.js"></script>
 </head>
-<body>
+<body class="">
   <svg id="map">
-    <g id="route-layer"></g>
-    <g id="stop-layer"></g>
+    <g id="map-content">
+      <g id="map-routes"></g>
+      <g id="map-stops"></g>
+      <g id="map-vehicles"></g>
+    </g>
   </svg>
-  <button id="routes-open">#</button>
-  <div id="routes" style="display: none"></div>
-  <div id="predictions" style="display: none"></div>
-  <div id="status"></div>
+  <div id="predictions">
+    <h1>
+      <span id="predictions-stop-name"></span>
+      #<span id="predictions-stop-id"></span>
+    </h1>
+    <p>Refreshing predictions in <span id="predictions-timeout"></span>...</p>
+    <ol id="predictions-list"></ol>
+    <p id="predictions-none">No predictions at this time.</p>
+  </div>
+  <div id="routes">
+    <div id="routes-list"></div>
+  </div>
+  <button id="routes-button"></button>
+  <button id="routes-clear-button"></button>
+  <button id="refresh-button"></button>
 </body>
 </html>

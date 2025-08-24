@@ -1,3 +1,8 @@
+export const map = document.querySelector('#map');
+
+export const biasX = -94.70059;
+export const biasY = -29.64724;
+
 export function html(tag, attrs, text) {
   const element = document.createElement(tag);
   if (attrs)
