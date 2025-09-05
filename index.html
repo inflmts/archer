@@ -4,31 +4,47 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Archer</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="main.css">
   <script type="module" src="src/main.js"></script>
 </head>
-<body class="">
-  <svg id="map">
-    <g id="map-content">
+<body>
+  <div id="map">
+    <svg id="map-content">
       <g id="map-routes"></g>
       <g id="map-stops"></g>
       <g id="map-vehicles"></g>
-    </g>
-  </svg>
+    </svg>
+  </div>
   <div id="predictions">
     <h1>
       <span id="predictions-stop-name"></span>
       #<span id="predictions-stop-id"></span>
     </h1>
-    <p>Refreshing predictions in <span id="predictions-timeout"></span>...</p>
-    <ol id="predictions-list"></ol>
+    <p id="predictions-message"></p>
     <p id="predictions-none">No predictions at this time.</p>
+    <ol id="predictions-list"></ol>
   </div>
   <div id="routes">
     <div id="routes-list"></div>
   </div>
-  <button id="routes-button"></button>
-  <button id="routes-clear-button"></button>
-  <button id="refresh-button"></button>
+  <button id="routes-button">
+    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="4">
+      <circle cx="8" cy="8" r="6" />
+      <path d="M 12,12 28,28" />
+      <circle cx="32" cy="32" r="6" />
+    </svg>
+  </button>
+  <button id="routes-clear-button">
+    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="4">
+      <path d="M 20,20 L 38,38 M 38,20 20,38 M 4,4 H 34 M 4,12 H 34 M 4,20 H 14 M 4,28 H 14" />
+    </svg>
+  </button>
+  <button id="refresh-button">
+    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="4">
+      <path d="M 6,20 A 14,14,270,1,0,20,6 M 20,20 V 3 H 38" />
+    </svg>
+  </button>
 </body>
 </html>

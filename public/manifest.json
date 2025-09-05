@@ -1,0 +1,14 @@
+{
+  "name": "Archer",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eee",
+  "theme_color": "red"
+}

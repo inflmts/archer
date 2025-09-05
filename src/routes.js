@@ -1,11 +1,350 @@
-import { biasX, biasY, html, svg, api } from './util.js';
-import { addStop, updatePredictions } from './stops.js';
+import { biasLon, biasLat, biasXScale, $, map, html, svg, api } from './util.js';
 
 const ROUTES_STORAGE_KEY = 'routes';
 
-const routeLayer = document.querySelector('#map-routes');
-const vehicleLayer = document.querySelector('#map-vehicles');
-const list = document.querySelector('#routes-list');
+const routeLayer = $('#map-routes');
+const busLayer = $('#map-vehicles');
+const routeList = $('#routes-list');
+
+const stopLayer = $('#map-stops');
+const selectedLayer = $('#map-content');
+
+const predStopIdElement = $('#predictions-stop-id');
+const predStopNameElement = $('#predictions-stop-name');
+const predMessageElement = $('#predictions-message');
+const predNoneElement = $('#predictions-none');
+const predListElement = $('#predictions-list');
+
+let geoX, geoY, geoZ;
+
+const routes = new Map();
+let enabledRoutes = null;
+let busTimeoutId = null;
+let stallTimeoutId = null;
+
+const stops = new Map();
+let currentStop = null;
+let predTickTimeout = null;
+
+let buses = [];
+
+class Route {
+
+  enabled = false;
+  patternLoading = false;
+  patterns = null;
+  stopsLoading = false;
+  stops = null;
+
+  constructor(id, name, color) {
+    this.id = id;
+    this.name = name;
+    this.color = color;
+
+    this.button = html('button', { class: 'route' });
+    this.button.route = this;
+    this.button.append(
+      html('div', { class: 'route-id' }, this.id),
+      html('div', { class: 'route-name' }, this.name)
+    );
+    this.button.style.setProperty('--color', this.color);
+    this.button.addEventListener('click', handleClick);
+
+    this.line = svg('path', {
+      'fill': 'none',
+      'stroke': this.color,
+      'stroke-width': '4',
+      'stroke-linejoin': 'bevel'
+    });
+  }
+
+  toggle() {
+    if (this.enabled)
+      this.disable();
+    else
+      this.enable();
+  }
+
+  enable() {
+    if (this.enabled)
+      return;
+    this.enabled = true;
+    this._enabledIndex = enabledRoutes.length;
+    enabledRoutes.push(this);
+
+    this.button.classList.add('route-enabled');
+    routeLayer.append(this.line);
+    if (this.stops)
+      for (const stop of this.stops)
+        stop.ref();
+    updatePredictions();
+
+    if (!this.patterns)
+      this.loadPattern();
+    this.loadStops();
+    if (!busTimeoutId)
+      updateBuses();
+  }
+
+  disable() {
+    if (!this.enabled)
+      return;
+    this.enabled = false;
+    enabledRoutes.splice(this._enabledIndex, 1);
+    for (let i = this._enabledIndex; i < enabledRoutes.length; i++)
+      enabledRoutes[i]._enabledIndex = i;
+
+    this.button.classList.remove('route-enabled');
+    this.line.remove();
+    if (this.stops)
+      for (const stop of this.stops)
+        stop.unref();
+    updatePredictions();
+  }
+
+  updateTransform() {
+    if (!this.patterns)
+      return;
+    const d = [];
+    for (const pattern of this.patterns) {
+      d.push('M');
+      for (const { x, y } of pattern.points)
+        d.push(x * geoZ + geoX | 0, y * geoZ + geoY | 0);
+    }
+    this.line.setAttribute('d', d.join(' '));
+  }
+
+  loadPattern() {
+    if (this.patternLoading)
+      return;
+    this.patternLoading = true;
+    this.patterns = null;
+    this._loadPattern();
+  }
+
+  async _loadPattern() {
+    let data;
+    try {
+      data = await api('getpatterns', { rt: this.id });
+    } finally {
+      this.patternLoading = false;
+    }
+
+    this.button.classList.add('route-loaded');
+    this.patterns = [];
+    for (const { pid, pt } of data.ptr) {
+      const pattern = { id: pid, points: [] };
+      for (const { lon, lat } of pt) {
+        pattern.points.push({
+          x: (lon - biasLon) * biasXScale,
+          y: -(lat - biasLat)
+        });
+      }
+      this.patterns.push(pattern);
+    }
+    this.updateTransform();
+  }
+
+  hasPattern(id) {
+    if (!this.patterns)
+      return false;
+    for (const pattern of this.patterns)
+      if (pattern.id === id)
+        return true;
+    return false;
+  }
+
+  loadStops() {
+    if (this.stopsLoading)
+      return;
+    this.stopsLoading = true;
+    this._loadStops();
+  }
+
+  async _loadStops() {
+    const data = await Promise.all([
+      api('getstops', { rt: this.id, dir: 'INBOUND' }),
+      api('getstops', { rt: this.id, dir: 'OUTBOUND' })
+    ]);
+
+    this.stops = [];
+    for (const dir of data) {
+      for (const { stpid, stpnm, lon, lat } of dir.stops) {
+          const stop = addStop(stpid, stpnm, lon, lat);
+          this.stops.push(stop);
+          if (this.enabled)
+            stop.ref();
+      }
+    }
+  }
+
+}
+
+class Bus {
+
+  constructor(id, route, lon, lat, angle) {
+    this.id = id;
+    this.x = (lon - biasLon) * biasXScale;
+    this.y = -(lat - biasLat);
+
+    const path = svg('path', {
+      'd': 'M -14 -14 V 0 A 14,14,270,1,0,0,-14 Z',
+      'stroke': 'black',
+      'stroke-width': '2',
+      'transform': `rotate(${angle + 45})`,
+      'fill': route.color
+    });
+    const text = svg('text', {
+      'dy': '6',
+      'font-size': '16',
+      'font-weight': 'bold',
+      'text-anchor': 'middle',
+      'fill': 'white'
+    });
+    text.textContent = route.id;
+    this.marker = svg('g');
+    this.marker.append(path, text);
+    busLayer.append(this.marker);
+    this.updateTransform();
+  }
+
+  updateTransform() {
+    const x = this.x * geoZ + geoX;
+    const y = this.y * geoZ + geoY;
+    this.marker.setAttribute('transform', `translate(${x},${y})`);
+  }
+
+}
+
+class Stop {
+
+  visible = 0;
+  predictions = null;
+  _loadingPredictions = false;
+  _predictionsExpire = 0;
+
+  constructor(id, name, lon, lat) {
+    this.id = id;
+    this.name = name;
+    this.x = (lon - biasLon) * biasXScale;
+    this.y = -(lat - biasLat);
+
+    this.marker = svg('circle', { 'r': '4' });
+    this.updateTransform();
+  }
+
+  ref() {
+    if (!this.visible++)
+      stopLayer.append(this.marker);
+  }
+
+  unref() {
+    if (!--this.visible)
+      this.marker.remove();
+  }
+
+  select() {
+    if (currentStop === this)
+      return;
+    if (currentStop)
+      currentStop.deselect();
+    currentStop = this;
+    this.ref();
+    this.marker.setAttribute('r', '12');
+    this.marker.setAttribute('fill', 'red');
+    document.body.classList.add('stop-selected');
+    selectedLayer.append(this.marker);
+    predStopIdElement.textContent = this.id;
+    predStopNameElement.textContent = this.name;
+    clearPredictions();
+    this.refreshPredictions();
+    if (!this._loadingPredictions)
+      this.updatePredictions();
+  }
+
+  deselect() {
+    if (currentStop !== this)
+      return;
+    currentStop = null;
+    this.unref();
+    this.marker.setAttribute('r', '4');
+    this.marker.removeAttribute('fill');
+    document.body.classList.remove('stop-selected');
+    if (this.visible)
+      stopLayer.append(this.marker);
+    if (predTickTimeout)
+      clearTimeout(predTickTimeout);
+  }
+
+  updateTransform() {
+    this.marker.setAttribute('cx', this.x * geoZ + geoX);
+    this.marker.setAttribute('cy', this.y * geoZ + geoY);
+  }
+
+  refreshPredictions() {
+    const remaining = this._predictionsExpire - Date.now();
+    if (remaining > 0) {
+      predMessageElement.textContent = `Refreshing predictions in ${Math.ceil(remaining / 1000)}s...`;
+      predTickTimeout = setTimeout(refreshPredictions, remaining % 1000 + 10);
+      return;
+    }
+    clearPredictions();
+    predMessageElement.textContent = 'Loading predictions...';
+    this._loadingPredictions = true;
+    this._loadPredictions();
+  }
+
+  async _loadPredictions() {
+    let data;
+    try {
+      data = await api('getpredictions', { stpid: this.id });
+    } finally {
+      this._loadingPredictions = false;
+    }
+    if (data.prd) {
+      this.predictions = data.prd.map(prd => {
+        return {
+          route: routes.get(prd.rt),
+          id: prd.rt,
+          dest: prd.des,
+          time: prd.prdctdn === 'DUE' ? 'DUE' : `${prd.prdctdn}m`
+        };
+      });
+    } else {
+      this.predictions = null;
+    }
+    this._predictionsExpire = Date.now() + 30000;
+    if (currentStop === this)
+      this.updatePredictions();
+    this.refreshPredictions();
+  }
+
+  updatePredictions() {
+    clearPredictions();
+    if (!this.predictions || !this.predictions.length) {
+      predNoneElement.style.display = null;
+      return;
+    }
+    for (const { route, id, dest, time } of this.predictions) {
+      const element = html('li', { class: 'prediction' });
+      if (route)
+        element.style.setProperty('--color', route.color);
+      if (!route || !route.enabled)
+        element.classList.add('prediction-other');
+      element.append(
+        html('div', { class: 'prediction-route' }, id),
+        html('div', { class: 'prediction-time' + (time === 'DUE' ? ' prediction-due' : '') }, time),
+        html('div', { class: 'prediction-dest' }, dest)
+      );
+      predListElement.append(element);
+    }
+  }
+
+}
+
+function refreshPredictions() {
+  currentStop.refreshPredictions();
+}
 
 export function openRoutes() {
   document.body.classList.add('routes-open');
@@ -30,159 +369,6 @@ function handleClick(ev) {
   saveRoutes();
 }
 
-let routes = null;
-let enabledRoutes = null;
-let vehicleTimeoutId = null;
-
-class Route {
-
-  enabled = false;
-  patternLoading = false;
-  patternIds = null;
-  stopsLoading = false;
-  stops = null;
-
-  _vehicleMarkerCreated = false;
-
-  constructor(id, name, color) {
-    this.id = id;
-    this.name = name;
-    this.color = color;
-
-    this.button = html('button', { class: 'route' });
-    this.button.route = this;
-    this.button.append(
-      html('div', { class: 'route-id' }, this.id),
-      html('div', { class: 'route-name' }, this.name)
-    );
-    this.button.style.setProperty('--color', this.color);
-    this.button.addEventListener('click', handleClick);
-
-    this.pattern = svg('path', {
-      'class': 'map-route',
-      'stroke': this.color
-    });
-  }
-
-  toggle() {
-    if (this.enabled)
-      this.disable();
-    else
-      this.enable();
-  }
-
-  enable() {
-    if (this.enabled)
-      return;
-    this.enabled = true;
-    this._enabledIndex = enabledRoutes.length;
-    enabledRoutes.push(this);
-
-    this.button.classList.add('route-enabled');
-    routeLayer.append(this.pattern);
-    if (this.stops)
-      for (const stop of this.stops)
-        stop.ref();
-    updatePredictions();
-
-    this.loadPattern();
-    this.loadStops();
-    if (!vehicleTimeoutId)
-      updateVehicles();
-  }
-
-  disable() {
-    if (!this.enabled)
-      return;
-    this.enabled = false;
-    enabledRoutes.splice(this._enabledIndex, 1);
-    for (let i = this._enabledIndex; i < enabledRoutes.length; i++)
-      enabledRoutes[i]._enabledIndex = i;
-
-    this.button.classList.remove('route-enabled');
-    this.pattern.remove();
-    if (this.stops)
-      for (const stop of this.stops)
-        stop.unref();
-    updatePredictions();
-  }
-
-  loadPattern() {
-    if (this.patternLoading)
-      return;
-    this.patternLoading = true;
-    this.patternIds = [];
-    this._loadPattern();
-  }
-
-  async _loadPattern() {
-    let data;
-    try {
-      data = await api(`getpatterns?rt=${this.id}`);
-    } finally {
-      this.patternLoading = false;
-    }
-
-    const d = [];
-    for (const { pid, pt } of data.ptr) {
-      this.patternIds.push(pid);
-      d.push('M');
-      for (const { lon, lat } of pt) {
-        d.push(lon * 1.15 - biasX, -lat - biasY);
-      }
-    }
-    this.pattern.setAttribute('d', d.join(' '));
-  }
-
-  loadStops() {
-    if (this.stopsLoading)
-      return;
-    this.stopsLoading = true;
-    this._loadStops();
-  }
-
-  async _loadStops() {
-    const data = await Promise.all([
-      api(`getstops?rt=${this.id}&dir=INBOUND`),
-      api(`getstops?rt=${this.id}&dir=OUTBOUND`)
-    ]);
-
-    this.stops = [];
-    for (const dir of data) {
-      for (const { stpid, stpnm, lon, lat } of dir.stops) {
-          const stop = addStop(stpid, stpnm, lon, lat);
-          this.stops.push(stop);
-          if (this.enabled)
-            stop.ref();
-      }
-    }
-  }
-
-  createVehicle(element, lon, lat, hdg) {
-    if (!element) {
-      element = svg('g', { 'class': 'map-vehicle' });
-      element.append(
-        svg('path', { 'd': 'M 0,-20 L-10,-10 A 14.1,14.1,270,1,0,10,-10 Z' }),
-        svg('text', { 'dy': '6' })
-      );
-      vehicleLayer.append(element);
-    }
-
-    const x = lon * 1.15 - biasX;
-    const y = -lat - biasY;
-    element.style.setProperty('--transform', `translate(${x}px, ${y}px)`);
-    element.children[0].setAttribute('transform', `rotate(${hdg})`);
-    element.children[0].setAttribute('fill', this.color);
-    element.children[1].textContent = this.id;
-    return element;
-  }
-
-}
-
-export function getRoute(id) {
-  return routes[id];
-}
-
 export function saveRoutes() {
   if (!enabledRoutes)
     return;
@@ -200,61 +386,128 @@ export function saveRoutes() {
 async function loadRoutes() {
   const data = await api('getroutes');
 
-  routes = Object.create(null);
   enabledRoutes = [];
   for (const { rt, rtnm, rtclr } of data.routes) {
     const route = new Route(rt, rtnm, rtclr);
-    routes[route.id] = route;
-    list.append(route.button);
+    routes.set(route.id, route);
+    routeList.append(route.button);
   }
 
   const ids = localStorage.getItem(ROUTES_STORAGE_KEY);
   if (ids) {
     console.log('Loading routes:', ids);
-    vehicleTimeoutId = 1;
+    busTimeoutId = 1;
     for (const id of ids.split(','))
-      if (id in routes)
-        routes[id].enable();
-    vehicleTimeoutId = null;
-    updateVehicles();
+      routes.get(id)?.enable();
+    busTimeoutId = null;
+    updateBuses();
   }
 }
 
-async function updateVehicles() {
-  if (!enabledRoutes.length) {
-    vehicleTimeoutId = null;
-    while (vehicleLayer.children.length)
-      vehicleLayer.lastChild.remove();
+function stall() {
+  stallTimeoutId = null;
+  map.classList.add('map-stalled');
+}
+
+function updateBuses() {
+  if (busTimeoutId)
+    clearTimeout(busTimeoutId);
+  _updateBuses();
+}
+
+async function _updateBuses() {
+  busTimeoutId = null;
+  if (!enabledRoutes.length)
     return;
-  }
+  if (!stallTimeoutId)
+    stallTimeoutId = setTimeout(stall, 2000);
   const requests = [];
   for (let i = 0; i < enabledRoutes.length; i += 10) {
     const rt = enabledRoutes.slice(i, i + 10).map(route => route.id).join(',');
-    requests.push(api(`getvehicles?rt=${rt}`));
+    requests.push(api('getvehicles', { rt }));
   }
   let data;
   try {
     data = await Promise.all(requests);
   } catch (e) {
-    vehicleTimeoutId = setTimeout(updateVehicles, 5000);
-    throw e;
+    busTimeoutId = setTimeout(_updateBuses, 5000);
+    console.log(e);
+    return;
   }
-  let i = 0;
+  if (stallTimeoutId) {
+    clearTimeout(stallTimeoutId);
+    stallTimeoutId = null;
+  }
+  map.classList.remove('map-stalled');
+  for (const bus of buses)
+    bus.marker.remove();
+  buses = [];
   for (const item of data) {
     if (!item.vehicle)
       continue;
-    for (const { rt, pid, lon, lat, hdg } of item.vehicle) {
-      const route = routes[rt];
+    for (const { vid, rt, pid, lon, lat, hdg } of item.vehicle) {
+      const route = routes.get(rt);
       if (!route)
         continue;
-      if (!route.patternIds || !route.patternIds.includes(pid))
+      if (!route.hasPattern(pid))
         route.loadPattern();
-      route.createVehicle(vehicleLayer.children[i++], lon, lat, hdg);
+      buses.push(new Bus(vid, route, lon, lat, Number(hdg)));
     }
   }
-  while (vehicleLayer.children.length > i)
-    vehicleLayer.lastChild.remove();
-  vehicleTimeoutId = setTimeout(updateVehicles, i ? 5000 : 60000);
+  busTimeoutId = setTimeout(_updateBuses, buses.length ? 5000 : 60000);
+}
+
+export function updateGeometry(x, y, z) {
+  geoX = x;
+  geoY = y;
+  geoZ = z;
+  if (routes.size)
+    for (const route of routes.values())
+      route.updateTransform();
+    for (const stop of stops.values())
+      stop.updateTransform();
+    for (const bus of buses)
+      bus.updateTransform();
+}
+
+function clearPredictions() {
+  predNoneElement.style.display = 'none';
+  while (predListElement.lastChild)
+    predListElement.removeChild(predListElement.lastChild);
+}
+
+export function updatePredictions() {
+  if (currentStop)
+    currentStop.updatePredictions();
+}
+
+export function deselectStop() {
+  if (currentStop)
+    currentStop.deselect();
+}
+
+export function addStop(id, name, lon, lat) {
+  let stop = stops.get(id);
+  if (!stop)
+    stops.set(id, stop = new Stop(id, name, lon, lat));
+  return stop;
+}
+
+export function getNearestStop(x, y) {
+  let nearest = null;
+  let nearestDistSq = Infinity;
+  for (const stop of stops.values()) {
+    if (!stop.visible)
+      continue;
+    const dx = stop.x - x;
+    const dy = stop.y - y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < nearestDistSq) {
+      nearest = stop;
+      nearestDistSq = distSq;
+    }
+  }
+  return nearest;
 }
 
 document.querySelector('#routes-button').addEventListener('click', toggleRoutes);

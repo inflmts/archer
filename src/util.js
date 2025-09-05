@@ -1,7 +1,15 @@
-export const map = document.querySelector('#map');
+export const biasLon = -82.34834;
+export const biasLat = 29.64724;
+export const biasXScale = Math.cos(biasLat * Math.PI / 180);
 
-export const biasX = -94.70059;
-export const biasY = -29.64724;
+export function $(selector) {
+  const element = document.querySelector(selector);
+  if (!element)
+    throw selector;
+  return element;
+}
+
+export const map = $('#map');
 
 export function html(tag, attrs, text) {
   const element = document.createElement(tag);
@@ -21,8 +29,4 @@ export function svg(tag, attrs) {
   return element;
 }
 
-export async function api(param) {
-  const response = await fetch(`/api/${param}`);
-  const data = await response.json();
-  return data['bustime-response'];
-}
+export { api } from './api.js';
