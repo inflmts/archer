@@ -2,19 +2,22 @@ import { biasLon, biasLat, biasXScale, $, map, html, svg, api } from './util.js'
 
 const ROUTES_STORAGE_KEY = 'routes';
 
-const routeLayer = $('#map-routes');
-const busLayer = $('#map-vehicles');
-const routeList = $('#routes-list');
+const content = $('map-content');
+const routeLayer = $('map-routes');
+const stopLayer = $('map-stops');
+const busLayer = $('map-buses');
+const routeList = $('routes-list');
 
-const stopLayer = $('#map-stops');
-const selectedLayer = $('#map-content');
+const predStopIdElement = $('predictions-stop-id');
+const predStopNameElement = $('predictions-stop-name');
+const predMessageElement = $('predictions-message');
+const predNoneElement = $('predictions-none');
+const predListElement = $('predictions-list');
 
-const predStopIdElement = $('#predictions-stop-id');
-const predStopNameElement = $('#predictions-stop-name');
-const predMessageElement = $('#predictions-message');
-const predNoneElement = $('#predictions-none');
-const predListElement = $('#predictions-list');
-
+const minOffsetZ = 0.5;
+const maxOffsetZ = 2;
+let commitTimer = null;
+let mapX, mapY, mapZ;
 let geoX, geoY, geoZ;
 
 const routes = new Map();
@@ -186,32 +189,17 @@ class Bus {
     this.id = id;
     this.x = (lon - biasLon) * biasXScale;
     this.y = -(lat - biasLat);
-
-    const path = svg('path', {
-      'd': 'M -14 -14 V 0 A 14,14,270,1,0,0,-14 Z',
-      'stroke': 'black',
-      'stroke-width': '2',
-      'transform': `rotate(${angle + 45})`,
-      'fill': route.color
-    });
-    const text = svg('text', {
-      'dy': '6',
-      'font-size': '16',
-      'font-weight': 'bold',
-      'text-anchor': 'middle',
-      'fill': 'white'
-    });
-    text.textContent = route.id;
-    this.marker = svg('g');
-    this.marker.append(path, text);
+    this.marker = html('div', { class: 'map-bus' }, route.id);
+    this.marker.style.setProperty('--color', route.color);
+    this.marker.style.setProperty('--angle', `${angle + 45}deg`);
     busLayer.append(this.marker);
     this.updateTransform();
   }
 
   updateTransform() {
-    const x = this.x * geoZ + geoX;
-    const y = this.y * geoZ + geoY;
-    this.marker.setAttribute('transform', `translate(${x},${y})`);
+    const x = this.x * mapZ + mapX - map.offsetWidth - 14;
+    const y = this.y * mapZ + mapY - map.offsetHeight - 14;
+    this.marker.style.transform = `translate3d(${x}px,${y}px,0px)`;
   }
 
 }
@@ -229,7 +217,7 @@ class Stop {
     this.x = (lon - biasLon) * biasXScale;
     this.y = -(lat - biasLat);
 
-    this.marker = svg('circle', { 'r': '4' });
+    this.marker = html('div', { class: 'map-stop' });
     this.updateTransform();
   }
 
@@ -250,10 +238,10 @@ class Stop {
       currentStop.deselect();
     currentStop = this;
     this.ref();
-    this.marker.setAttribute('r', '12');
-    this.marker.setAttribute('fill', 'red');
+    //this.marker.setAttribute('r', '12');
+    //this.marker.setAttribute('fill', 'red');
     document.body.classList.add('stop-selected');
-    selectedLayer.append(this.marker);
+    //content.append(this.marker);
     predStopIdElement.textContent = this.id;
     predStopNameElement.textContent = this.name;
     clearPredictions();
@@ -267,18 +255,19 @@ class Stop {
       return;
     currentStop = null;
     this.unref();
-    this.marker.setAttribute('r', '4');
-    this.marker.removeAttribute('fill');
+    //this.marker.setAttribute('r', '4');
+    //this.marker.removeAttribute('fill');
     document.body.classList.remove('stop-selected');
-    if (this.visible)
-      stopLayer.append(this.marker);
+    //if (this.visible)
+    //  stopLayer.append(this.marker);
     if (predTickTimeout)
       clearTimeout(predTickTimeout);
   }
 
   updateTransform() {
-    this.marker.setAttribute('cx', this.x * geoZ + geoX);
-    this.marker.setAttribute('cy', this.y * geoZ + geoY);
+    const x = this.x * mapZ + mapX - map.offsetWidth - 4;
+    const y = this.y * mapZ + mapY - map.offsetHeight - 4;
+    this.marker.style.transform = `translate3d(${x}px,${y}px,0px)`;
   }
 
   refreshPredictions() {
@@ -457,18 +446,44 @@ async function _updateBuses() {
   busTimeoutId = setTimeout(_updateBuses, buses.length ? 5000 : 60000);
 }
 
-export function updateGeometry(x, y, z) {
-  geoX = x;
-  geoY = y;
-  geoZ = z;
-  if (routes.size)
-    for (const route of routes.values())
-      route.updateTransform();
+export function updateTransform(x, y, z) {
+  mapX = x;
+  mapY = y;
+  mapZ = z;
+  let offsetZ;
+  if (geoZ === undefined || (offsetZ = mapZ / geoZ) < minOffsetZ || offsetZ > maxOffsetZ) {
+    commitTransform();
+  } else {
+    if (!commitTimer)
+      commitTimer = setTimeout(commitTransform, 500);
+    const offsetX = mapX - geoX * offsetZ - innerWidth;
+    const offsetY = mapY - geoY * offsetZ - innerHeight;
+    content.style.transform = `translate3d(${offsetX}px,${offsetY}px,0px) scale(${offsetZ})`;
     for (const stop of stops.values())
       stop.updateTransform();
     for (const bus of buses)
       bus.updateTransform();
+  }
 }
+
+function commitTransform() {
+  if (commitTimer) {
+    clearTimeout(commitTimer);
+    commitTimer = null;
+  }
+  geoX = mapX;
+  geoY = mapY;
+  geoZ = mapZ;
+  content.style.transform = `translate3d(${-innerWidth}px,${-innerHeight}px,0px)`;
+  content.style.backgroundPosition = `${mapX}px ${mapY}px`;
+  content.style.backgroundSize = `${mapZ * 0.005}px`;
+
+  if (routes.size) {
+    for (const route of routes.values())
+      route.updateTransform();
+  }
+}
+
 
 function clearPredictions() {
   predNoneElement.style.display = 'none';

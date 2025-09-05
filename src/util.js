@@ -3,13 +3,13 @@ export const biasLat = 29.64724;
 export const biasXScale = Math.cos(biasLat * Math.PI / 180);
 
 export function $(selector) {
-  const element = document.querySelector(selector);
+  const element = document.getElementById(selector);
   if (!element)
     throw selector;
   return element;
 }
 
-export const map = $('#map');
+export const map = $('map');
 
 export function html(tag, attrs, text) {
   const element = document.createElement(tag);

@@ -1,12 +1,10 @@
 import { $, map } from './util.js';
-import { closeRoutes, updateGeometry, deselectStop, getNearestStop } from './routes.js';
+import { closeRoutes, updateTransform as updateRouteTransform, deselectStop, getNearestStop } from './routes.js';
 
-const content = $('#map-content');
+const content = $('map-content');
 
 const minScale = 2000;
 const maxScale = 200000;
-const minOffsetZ = 0.5;
-const maxOffsetZ = 2;
 const panDragCoefficient = 0.004;
 const panFriction = 0.001;
 const zoomDragCoefficient = 0.02;
@@ -22,39 +20,12 @@ let panSpeed, panFactorX, panFactorY;
 let pinchDist, /*pinchTime, pinchDeltaTime,*/ pinchDeltaZ;
 let pinchVel;
 
-let commitTimer = null;
 let mapX = map.offsetWidth * 1.5;
 let mapY = map.offsetHeight * 1.5;
 let mapZ = 10000;
-let geoX = mapX;
-let geoY = mapY;
-let geoZ = mapZ;
 
 function updateTransform() {
-  const offsetZ = mapZ / geoZ;
-  if (offsetZ < minOffsetZ || offsetZ > maxOffsetZ) {
-    commitTransform();
-  } else {
-    if (!commitTimer)
-      commitTimer = setTimeout(commitTransform, 500);
-    const offsetX = mapX - geoX * offsetZ - innerWidth;
-    const offsetY = mapY - geoY * offsetZ - innerHeight;
-    content.style.transform = `translate3d(${offsetX}px,${offsetY}px,0px) scale(${offsetZ})`;
-  }
-}
-
-function commitTransform() {
-  if (commitTimer) {
-    clearTimeout(commitTimer);
-    commitTimer = null;
-  }
-  geoX = mapX;
-  geoY = mapY;
-  geoZ = mapZ;
-  content.style.transform = `translate3d(${-innerWidth}px,${-innerHeight}px,0px)`;
-  content.style.backgroundPosition = `${mapX}px ${mapY}px`;
-  content.style.backgroundSize = `${mapZ * 0.005}px`;
-  updateGeometry(geoX, geoY, geoZ);
+  updateRouteTransform(mapX, mapY, mapZ);
 }
 
 function handle(ret) {
@@ -328,4 +299,4 @@ map.addEventListener('pointercancel', handlePointerUp);
 map.addEventListener('wheel', handleWheel, { passive: true });
 window.addEventListener('resize', handleResize);
 handleResize();
-commitTransform();
+updateTransform();
