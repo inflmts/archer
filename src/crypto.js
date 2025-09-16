@@ -1,3 +1,5 @@
+// https://github.com/dchest/fast-sha256-js
+//
 // SHA-256 (+ HMAC and PBKDF2) for JavaScript.
 //
 // Written in 2014-2016 by Dmitry Chestnykh.

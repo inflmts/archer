@@ -4,11 +4,11 @@
     {
       "src": "/icon.svg",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "maskable any"
     }
   ],
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#eee",
-  "theme_color": "red"
+  "background_color": "#ddd"
 }

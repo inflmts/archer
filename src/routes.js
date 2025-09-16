@@ -1,4 +1,4 @@
-import { biasLon, biasLat, biasXScale, $, map, html, svg, api } from './util.js';
+import { $, biasLon, biasLat, biasXScale, map, html, svg, api } from './util.js';
 
 const ROUTES_STORAGE_KEY = 'routes';
 
@@ -16,14 +16,15 @@ const predListElement = $('predictions-list');
 
 const minOffsetZ = 0.5;
 const maxOffsetZ = 2;
-let commitTimer = null;
 let mapX, mapY, mapZ;
-let geoX, geoY, geoZ;
+let routeZ;
+
+let paused = true;
 
 const routes = new Map();
 let enabledRoutes = null;
 let busTimeoutId = null;
-let stallTimeoutId = null;
+let loadingBuses = false;
 
 const stops = new Map();
 let currentStop = null;
@@ -82,11 +83,14 @@ class Route {
         stop.ref();
     updatePredictions();
 
+    for (const bus of buses)
+      if (bus.route === this)
+        bus.marker.style.display = null;
+
     if (!this.patterns)
       this.loadPattern();
     this.loadStops();
-    if (!busTimeoutId)
-      updateBuses();
+    updateBuses();
   }
 
   disable() {
@@ -103,16 +107,23 @@ class Route {
       for (const stop of this.stops)
         stop.unref();
     updatePredictions();
+
+    for (const bus of buses)
+      if (bus.route === this)
+        bus.marker.style.display = 'none';
   }
 
   updateTransform() {
-    if (!this.patterns)
+    if (!this.patterns) {
+      this.line.setAttribute('d', '');
       return;
+    }
     const d = [];
     for (const pattern of this.patterns) {
       d.push('M');
       for (const { x, y } of pattern.points)
-        d.push(x * geoZ + geoX | 0, y * geoZ + geoY | 0);
+        d.push(x * routeZ | 0, y * routeZ | 0);
+        //d.push(x * geoZ + geoX | 0, y * geoZ + geoY | 0);
     }
     this.line.setAttribute('d', d.join(' '));
   }
@@ -132,8 +143,6 @@ class Route {
     } finally {
       this.patternLoading = false;
     }
-
-    this.button.classList.add('route-loaded');
     this.patterns = [];
     for (const { pid, pt } of data.ptr) {
       const pattern = { id: pid, points: [] };
@@ -187,18 +196,21 @@ class Bus {
 
   constructor(id, route, lon, lat, angle) {
     this.id = id;
+    this.route = route;
     this.x = (lon - biasLon) * biasXScale;
     this.y = -(lat - biasLat);
     this.marker = html('div', { class: 'map-bus' }, route.id);
     this.marker.style.setProperty('--color', route.color);
     this.marker.style.setProperty('--angle', `${angle + 45}deg`);
+    if (!route.enabled)
+      this.marker.style.display = 'none';
     busLayer.append(this.marker);
     this.updateTransform();
   }
 
   updateTransform() {
-    const x = this.x * mapZ + mapX - map.offsetWidth - 14;
-    const y = this.y * mapZ + mapY - map.offsetHeight - 14;
+    const x = this.x * mapZ + mapX - 15;
+    const y = this.y * mapZ + mapY - 15;
     this.marker.style.transform = `translate3d(${x}px,${y}px,0px)`;
   }
 
@@ -238,16 +250,16 @@ class Stop {
       currentStop.deselect();
     currentStop = this;
     this.ref();
-    //this.marker.setAttribute('r', '12');
-    //this.marker.setAttribute('fill', 'red');
+    this.marker.classList.add('selected');
     document.body.classList.add('stop-selected');
-    //content.append(this.marker);
+    map.append(this.marker);
     predStopIdElement.textContent = this.id;
     predStopNameElement.textContent = this.name;
     clearPredictions();
     this.refreshPredictions();
     if (!this._loadingPredictions)
       this.updatePredictions();
+    this.updateTransform();
   }
 
   deselect() {
@@ -255,18 +267,18 @@ class Stop {
       return;
     currentStop = null;
     this.unref();
-    //this.marker.setAttribute('r', '4');
-    //this.marker.removeAttribute('fill');
+    this.marker.classList.remove('selected');
     document.body.classList.remove('stop-selected');
-    //if (this.visible)
-    //  stopLayer.append(this.marker);
+    if (this.visible)
+      stopLayer.append(this.marker);
     if (predTickTimeout)
       clearTimeout(predTickTimeout);
+    this.updateTransform();
   }
 
   updateTransform() {
-    const x = this.x * mapZ + mapX - map.offsetWidth - 4;
-    const y = this.y * mapZ + mapY - map.offsetHeight - 4;
+    const x = this.x * mapZ + mapX - 4;
+    const y = this.y * mapZ + mapY - 4;
     this.marker.style.transform = `translate3d(${x}px,${y}px,0px)`;
   }
 
@@ -385,20 +397,16 @@ async function loadRoutes() {
   const ids = localStorage.getItem(ROUTES_STORAGE_KEY);
   if (ids) {
     console.log('Loading routes:', ids);
-    busTimeoutId = 1;
     for (const id of ids.split(','))
       routes.get(id)?.enable();
-    busTimeoutId = null;
+    resume();
     updateBuses();
   }
 }
 
-function stall() {
-  stallTimeoutId = null;
-  map.classList.add('map-stalled');
-}
-
 function updateBuses() {
+  if (paused || loadingBuses)
+    return;
   if (busTimeoutId)
     clearTimeout(busTimeoutId);
   _updateBuses();
@@ -408,26 +416,22 @@ async function _updateBuses() {
   busTimeoutId = null;
   if (!enabledRoutes.length)
     return;
-  if (!stallTimeoutId)
-    stallTimeoutId = setTimeout(stall, 2000);
   const requests = [];
   for (let i = 0; i < enabledRoutes.length; i += 10) {
     const rt = enabledRoutes.slice(i, i + 10).map(route => route.id).join(',');
     requests.push(api('getvehicles', { rt }));
   }
   let data;
+  loadingBuses = true;
   try {
     data = await Promise.all(requests);
   } catch (e) {
-    busTimeoutId = setTimeout(_updateBuses, 5000);
-    console.log(e);
-    return;
+    if (!paused)
+      busTimeoutId = setTimeout(_updateBuses, 5000);
+    throw e;
+  } finally {
+    loadingBuses = false;
   }
-  if (stallTimeoutId) {
-    clearTimeout(stallTimeoutId);
-    stallTimeoutId = null;
-  }
-  map.classList.remove('map-stalled');
   for (const bus of buses)
     bus.marker.remove();
   buses = [];
@@ -443,47 +447,35 @@ async function _updateBuses() {
       buses.push(new Bus(vid, route, lon, lat, Number(hdg)));
     }
   }
-  busTimeoutId = setTimeout(_updateBuses, buses.length ? 5000 : 60000);
+  if (!paused)
+    busTimeoutId = setTimeout(_updateBuses, buses.length ? 5000 : 60000);
 }
 
 export function updateTransform(x, y, z) {
   mapX = x;
   mapY = y;
   mapZ = z;
-  let offsetZ;
-  if (geoZ === undefined || (offsetZ = mapZ / geoZ) < minOffsetZ || offsetZ > maxOffsetZ) {
-    commitTransform();
-  } else {
-    if (!commitTimer)
-      commitTimer = setTimeout(commitTransform, 500);
-    const offsetX = mapX - geoX * offsetZ - innerWidth;
-    const offsetY = mapY - geoY * offsetZ - innerHeight;
-    content.style.transform = `translate3d(${offsetX}px,${offsetY}px,0px) scale(${offsetZ})`;
-    for (const stop of stops.values())
-      stop.updateTransform();
-    for (const bus of buses)
-      bus.updateTransform();
-  }
-}
-
-function commitTransform() {
-  if (commitTimer) {
-    clearTimeout(commitTimer);
-    commitTimer = null;
-  }
-  geoX = mapX;
-  geoY = mapY;
-  geoZ = mapZ;
-  content.style.transform = `translate3d(${-innerWidth}px,${-innerHeight}px,0px)`;
-  content.style.backgroundPosition = `${mapX}px ${mapY}px`;
-  content.style.backgroundSize = `${mapZ * 0.005}px`;
-
-  if (routes.size) {
+  let offsetZ = mapZ / routeZ;
+  if (routeZ === undefined || offsetZ < minOffsetZ || offsetZ > maxOffsetZ) {
+    routeZ = mapZ;
+    offsetZ = 1;
+    const off = 0.1 * routeZ | 0;
+    const dim = 2 * off;
+    content.setAttribute('width', dim);
+    content.setAttribute('height', dim);
+    content.setAttribute('viewBox', `${-off},${-off},${dim},${dim}`);
     for (const route of routes.values())
       route.updateTransform();
   }
+  const off = 0.1 * mapZ | 0;
+  map.style.backgroundPosition = `${mapX}px ${mapY}px`;
+  map.style.backgroundSize = `${mapZ * 0.005}px`;
+  content.style.transform = `translate3d(${mapX - off}px,${mapY - off}px,0px) scale(${offsetZ})`;
+  for (const stop of stops.values())
+    stop.updateTransform();
+  for (const bus of buses)
+    bus.updateTransform();
 }
-
 
 function clearPredictions() {
   predNoneElement.style.display = 'none';
@@ -524,6 +516,28 @@ export function getNearestStop(x, y) {
   }
   return nearest;
 }
+
+function pause() {
+  if (paused)
+    return;
+  paused = true;
+  if (busTimeoutId)
+    clearTimeout(busTimeoutId);
+}
+
+function resume() {
+  if (!paused)
+    return;
+  paused = false;
+  updateBuses();
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden)
+    pause();
+  else
+    resume();
+});
 
 document.querySelector('#routes-button').addEventListener('click', toggleRoutes);
 document.querySelector('#routes-clear-button').addEventListener('click', clearRoutes);

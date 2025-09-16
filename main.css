@@ -1,4 +1,4 @@
-*, ::before, ::after {
+* {
   box-sizing: border-box;
   margin: 0;
   border: 0;
@@ -9,12 +9,13 @@
 body {
   font-family: system-ui, sans-serif;
   color: black;
-  background-color: #eee;
+  background-color: #ddd;
   user-select: none;
+  pointer-events: none;
   touch-action: none;
 }
 
-html, body, #map, #map::after {
+html, body, #map {
   width: 100%;
   height: 100%;
 }
@@ -34,31 +35,22 @@ svg {
 #map {
   position: absolute;
   overflow: hidden;
-}
-
-#map.map-stalled::after {
-  content: '';
-  display: block;
-  position: absolute;
-  background-color: white;
-  opacity: 0.5;
+  pointer-events: auto;
+  background-image: url('data:image/svg+xml,\
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">\
+  <rect width="32" height="32" fill="none" stroke="%23ccc" />\
+  </svg>');
 }
 
 #map > * {
+  position: absolute;
   pointer-events: none;
 }
 
 #map-content {
   transform-origin: 0 0;
-  position: absolute;
-  background-image: url('data:image/svg+xml,\
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">\
-  <rect width="32" height="32" fill="none" stroke="%23ddd" />\
-  </svg>');
-}
-
-#map-stops, #map-buses {
-  position: absolute;
+  /* chrome android needs this? */
+  will-change: transform;
 }
 
 .map-stop {
@@ -67,6 +59,24 @@ svg {
   border-radius: 50%;
   width: 8px;
   height: 8px;
+  /* chrome android needs this? */
+  will-change: transform;
+}
+
+.map-stop.selected {
+  background-color: red;
+}
+
+.map-stop.selected::before {
+  content: '';
+  display: block;
+  position: absolute;
+  border-radius: 50%;
+  border: 8px solid red;
+  top: -200%;
+  right: -200%;
+  bottom: -200%;
+  left: -200%;
 }
 
 .map-bus {
@@ -77,10 +87,13 @@ svg {
   text-align: center;
   color: white;
   font-weight: bold;
+  /* chrome android needs this? */
+  will-change: transform;
 }
 
 .map-bus::before {
   content: '';
+  box-sizing: border-box;
   display: block;
   position: absolute;
   z-index: -1;
@@ -95,7 +108,6 @@ svg {
 /* routes pane */
 
 #routes {
-  pointer-events: none;
   position: absolute;
   width: 100%;
   height: 100%;
@@ -108,7 +120,6 @@ svg {
 }
 
 #routes-list {
-  pointer-events: auto;
   position: absolute;
   padding-bottom: 5rem;
   max-width: calc(100% - 5rem);
@@ -117,6 +128,9 @@ svg {
   right: 0;
   background-color: white;
   overflow-y: auto;
+  pointer-events: auto;
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
 }
 
 .route {
@@ -139,11 +153,6 @@ svg {
 }
 
 .route-enabled .route-id {
-  background-color: #ddd;
-  color: #bbb;
-}
-
-.route-enabled.route-loaded .route-id {
   background-color: var(--color);
   color: white;
 }
@@ -165,8 +174,7 @@ svg {
   bottom: 0;
   left: 0;
   right: 0;
-  overflow-y: auto;
-  pointer-events: none;
+  overflow: hidden;
   display: none;
 }
 
@@ -190,15 +198,16 @@ svg {
   color: black;
 }
 
+#predictions-none,
 #predictions-list {
-  margin-top: 0.5rem;
+  margin-top: 0.25rem;
 }
 
 .prediction {
   display: flex;
   border-bottom: 0.125rem solid var(--color);
   width: fit-content;
-  background-color: rgb(255 255 255 / 0.9);
+  background-color: white;
 }
 
 .prediction-route {
@@ -225,8 +234,8 @@ svg {
 }
 
 .prediction-other {
-  color: #888;
-  background-color: rgb(224 224 224 / 0.9);
+  color: #666;
+  background-color: #ccc;
   border-color: #aaa;
 }
 
@@ -239,40 +248,29 @@ svg {
   color: #f88;
 }
 
-/*
-#status {
-  pointer-events: none;
-  position: absolute;
-  top: 0.25rem;
-  right: 0.25rem;
-  width: 0.75rem;
-  height: 0.75rem;
-  border-radius: 50%;
-  background-color: #0c0;
-}
-
-#status.status-blink {
-  background-color: #0f0;
-}
-*/
-
 /* controls */
+
+#status {
+  position: absolute;
+  padding: 0.25rem 0.5rem;
+  bottom: 1rem;
+  left: 1rem;
+  background-color: white;
+}
 
 body > button {
   position: absolute;
-  padding: 0.625rem;
   width: 3rem;
   height: 3rem;
   font-weight: bold;
-  border-radius: 0.5rem;
-  border: 0.25rem solid black;
-  background-color: white;
+  background-color: black;
+  color: white;
   display: none;
+  pointer-events: auto;
 }
 
-body > button:hover,
-body > button:active {
-  background-color: #faa;
+body > button:hover {
+  background-color: #444;
 }
 
 #routes-button {
@@ -285,18 +283,6 @@ body > button:active {
   bottom: 1rem;
   right: 5rem;
 }
-
-/*
-#deselect-stop-button {
-  bottom: 5rem;
-  right: 1rem;
-  background-image: url('data:image/svg+xml,\
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" \
-fill="none" stroke="black" stroke-width="4">\
-<path d="M 20,20 L 38,38 M 38,20 20,38 M 30,16 A 14,14,270,1,0,16,30" />\
-</svg>');
-}
-*/
 
 #refresh-button {
   bottom: 1rem;
