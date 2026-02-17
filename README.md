@@ -37,13 +37,6 @@ pnpm install
 pnpm exec vite
 ```
 
-Alternatively, install Vite globally and run it directly:
-
-```
-pnpm add -g vite
-vite
-```
-
 The site is now live at the usual <http://localhost:5173>.
 
 ## License
