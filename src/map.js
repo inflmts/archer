@@ -213,17 +213,19 @@ class Route {
 
     ctx.beginPath();
 
-    for (const { points } of this.patterns)
-      for (const { x, y } of points)
-        ctx.lineTo(x * canvasResolution - canvasX, y * canvasResolution - canvasY);
+    for (const { points } of this.patterns) {
+      points.forEach((point, i) => {
+        const x = point.x * canvasResolution - canvasX;
+        const y = point.y * canvasResolution - canvasY;
+        if (i) ctx.lineTo(x, y);
+        else   ctx.moveTo(x, y);
+      });
+    }
 
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
     ctx.strokeStyle = this.color;
-    ctx.lineWidth = 20;
-    ctx.stroke();
-    ctx.strokeStyle = 'white';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 2;
     ctx.stroke();
   }
 
