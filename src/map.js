@@ -19,13 +19,12 @@ const ctx = canvas.getContext('2d');
 const biasLon = -82.34834;
 const biasLat = 29.64724;
 const biasXScale = Math.cos(biasLat * Math.PI / 180);
-//const biasScale = 10000;
 const canvasResolution = 20000;
 
 const minScale = 2000;
 const maxScale = 200000;
-const panDragCoefficient = 0.001;//0.004;
-const panFriction = 0.002;//0.001;
+const panDragCoefficient = 0.001;
+const panFriction = 0.002;
 const zoomIncrement = 0.005;
 
 let mode, modeAnimateId;
@@ -151,23 +150,24 @@ class Route {
     }
 
     this.patterns = [];
+    this.path = new Path2D();
     this.minX = Infinity;
     this.maxX = -Infinity;
     this.minY = Infinity;
     this.maxY = -Infinity;
 
     for (const { pid, pt } of data.ptr) {
-      const points = [];
-      for (const { lon, lat } of pt) {
-        const x = (lon - biasLon) * biasXScale;
-        const y = -(lat - biasLat);
+      pt.forEach(({ lon, lat }, i) => {
+        const x = (lon - biasLon) * biasXScale * canvasResolution;
+        const y = -(lat - biasLat) * canvasResolution;
         if (x < this.minX) this.minX = x;
         if (x > this.maxX) this.maxX = x;
         if (y < this.minY) this.minY = y;
         if (y > this.maxY) this.maxY = y;
-        points.push({ x, y });
-      }
-      this.patterns.push({ id: pid, points });
+        if (i) this.path.lineTo(x, y);
+        else   this.path.moveTo(x, y);
+      });
+      this.patterns.push({ id: pid });
     }
 
     if (this.enabled)
@@ -205,28 +205,6 @@ class Route {
             stop.ref();
       }
     }
-  }
-
-  render() {
-    if (!this.patterns)
-      return;
-
-    ctx.beginPath();
-
-    for (const { points } of this.patterns) {
-      points.forEach((point, i) => {
-        const x = point.x * canvasResolution - canvasX;
-        const y = point.y * canvasResolution - canvasY;
-        if (i) ctx.lineTo(x, y);
-        else   ctx.moveTo(x, y);
-      });
-    }
-
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = this.color;
-    ctx.lineWidth = 2;
-    ctx.stroke();
   }
 
 }
@@ -346,6 +324,7 @@ class Stop {
         return {
           route: routes.get(prd.rt),
           id: prd.rt,
+          vid: prd.vid,
           dest: prd.des,
           time: prd.prdctdn === 'DUE' ? 'DUE' : `${prd.prdctdn}m`
         };
@@ -365,7 +344,7 @@ class Stop {
       predNoneElement.style.display = null;
       return;
     }
-    for (const { route, id, dest, time } of this.predictions) {
+    for (const { route, id, vid, dest, time } of this.predictions) {
       const element = html('li', { class: 'prediction' });
       if (route)
         element.style.setProperty('--color', route.color);
@@ -374,6 +353,7 @@ class Stop {
       element.append(
         html('div', { class: 'prediction-route' }, id),
         html('div', { class: 'prediction-time' + (time === 'DUE' ? ' prediction-due' : '') }, time),
+        html('div', { class: 'prediction-vid' }, vid),
         html('div', { class: 'prediction-dest' }, dest)
       );
       predListElement.append(element);
@@ -579,19 +559,28 @@ function render(force = false) {
     if (route.maxY > maxY) maxY = route.maxY;
   }
 
-  minX = (minX * canvasResolution | 0) - 10;
-  maxX = (maxX * canvasResolution | 0) + 10;
-  minY = (minY * canvasResolution | 0) - 10;
-  maxY = (maxY * canvasResolution | 0) + 10;
-  canvas.width = maxX - minX;
-  canvas.height = maxY - minY;
+  minX -= 1;
+  maxX += 1;
+  minY -= 1;
+  maxY += 1;
+
   canvasX = minX;
   canvasY = minY;
-
+  canvas.width = maxX - minX | 0;
+  canvas.height = maxY - minY | 0;
   canvas.style.transform = `translate(${mapX}px, ${mapY}px) scale(${mapZ / canvasResolution}) translate(${canvasX}px, ${canvasY}px)`;
 
-  for (const route of enabledRoutes)
-    route.render();
+  ctx.setTransform(1, 0, 0, 1, -canvasX, -canvasY);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 2;
+
+  for (const route of enabledRoutes) {
+    if (route.patterns) {
+      ctx.strokeStyle = route.color;
+      ctx.stroke(route.path);
+    }
+  }
 }
 
 //window.addEventListener('resize', resize);

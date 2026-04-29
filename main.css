@@ -200,13 +200,15 @@ svg {
 
 .prediction {
   display: flex;
+  align-items: center;
   border-bottom: 0.125rem solid var(--color);
   width: fit-content;
   background-color: white;
+  white-space: nowrap;
 }
 
 .prediction-route {
-  padding: 0.125rem 0;
+  padding: 0.125rem 0.25rem;
   min-width: 3rem;
   font-weight: bold;
   background-color: var(--color);
@@ -215,13 +217,20 @@ svg {
 }
 
 .prediction-time {
-  padding: 0.125rem 0.5rem;
+  padding: 0.125rem 0.25rem 0.125rem 0.5rem;
   min-width: 3rem;
   font-weight: bold;
 }
 
 .prediction-due {
   color: red;
+}
+
+.prediction-vid {
+  padding: 0.125rem 0.25rem 0.125rem 0;
+  min-width: 2.25rem;
+  font-size: smaller;
+  color: gray;
 }
 
 .prediction-dest {
@@ -264,8 +273,8 @@ body > button {
   pointer-events: auto;
 }
 
-body > button:hover {
-  background-color: #444;
+.routes-open > button {
+  display: block;
 }
 
 #routes-button {
@@ -284,8 +293,8 @@ body > button:hover {
   right: 9rem;
 }
 
-.routes-open #routes-clear-button,
-.stop-selected #deselect-stop-button:not(.routes-open *),
-.routes-open #refresh-button {
-  display: block;
+#info-button {
+  bottom: 1rem;
+  right: 13rem;
+  font-size: 2rem;
 }
