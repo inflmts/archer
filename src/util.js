@@ -1,12 +1,5 @@
 import { HMAC } from './crypto.js';
 
-export const biasLon = -82.34834;
-export const biasLat = 29.64724;
-export const biasXScale = Math.cos(biasLat * Math.PI / 180);
-export const biasScale = 10000;
-
-export const map = $('map');
-
 export function $(selector) {
   const element = document.getElementById(selector);
   if (!element)

@@ -1,9 +1,9 @@
-import { $, biasLon, biasLat, biasXScale, map, html, svg, api } from './util.js';
+import { $, html, api } from './util.js';
 
 const ROUTES_STORAGE_KEY = 'routes';
 
-const content = $('map-content');
-const routeLayer = $('map-routes');
+const map = $('map');
+const canvas = $('map-canvas');
 const stopLayer = $('map-stops');
 const busLayer = $('map-buses');
 const routeList = $('routes-list');
@@ -14,11 +14,33 @@ const predMessageElement = $('predictions-message');
 const predNoneElement = $('predictions-none');
 const predListElement = $('predictions-list');
 
-const minOffsetZ = 0.5;
-const maxOffsetZ = 2;
-let mapX, mapY, mapZ;
-let routeZ;
+const ctx = canvas.getContext('2d');
 
+const biasLon = -82.34834;
+const biasLat = 29.64724;
+const biasXScale = Math.cos(biasLat * Math.PI / 180);
+//const biasScale = 10000;
+const canvasResolution = 20000;
+
+const minScale = 2000;
+const maxScale = 200000;
+const panDragCoefficient = 0.001;//0.004;
+const panFriction = 0.002;//0.001;
+const zoomIncrement = 0.005;
+
+let mode, modeAnimateId;
+let p1, p1x, p1y, p2, p2x, p2y;
+let panTime, panDeltaTime, panDeltaX, panDeltaY;
+let panSpeed, panFactorX, panFactorY;
+let pinchDist;
+
+let mapX = innerWidth * 0.5;
+let mapY = innerHeight * 0.5;
+let mapZ = 10000;
+
+let canvasX, canvasY;
+
+let needRender = false;
 let paused = true;
 
 const routes = new Map();
@@ -53,13 +75,6 @@ class Route {
     );
     this.button.style.setProperty('--color', this.color);
     this.button.addEventListener('click', handleClick);
-
-    this.line = svg('path', {
-      'fill': 'none',
-      'stroke': this.color,
-      'stroke-width': '4',
-      'stroke-linejoin': 'bevel'
-    });
   }
 
   toggle() {
@@ -77,20 +92,23 @@ class Route {
     enabledRoutes.push(this);
 
     this.button.classList.add('route-enabled');
-    routeLayer.append(this.line);
+
     if (this.stops)
       for (const stop of this.stops)
         stop.ref();
-    updatePredictions();
 
     for (const bus of buses)
       if (bus.route === this)
         bus.marker.style.display = null;
 
-    if (!this.patterns)
+    if (this.patterns)
+      needRender = true;
+    else
       this.loadPattern();
+
     this.loadStops();
     updateBuses();
+    updatePredictions();
   }
 
   disable() {
@@ -102,7 +120,7 @@ class Route {
       enabledRoutes[i]._enabledIndex = i;
 
     this.button.classList.remove('route-enabled');
-    this.line.remove();
+
     if (this.stops)
       for (const stop of this.stops)
         stop.unref();
@@ -111,21 +129,9 @@ class Route {
     for (const bus of buses)
       if (bus.route === this)
         bus.marker.style.display = 'none';
-  }
 
-  updateTransform() {
-    if (!this.patterns) {
-      this.line.setAttribute('d', '');
-      return;
-    }
-    const d = [];
-    for (const pattern of this.patterns) {
-      d.push('M');
-      for (const { x, y } of pattern.points)
-        d.push(x * routeZ | 0, y * routeZ | 0);
-        //d.push(x * geoZ + geoX | 0, y * geoZ + geoY | 0);
-    }
-    this.line.setAttribute('d', d.join(' '));
+    if (this.patterns)
+      needRender = true;
   }
 
   loadPattern() {
@@ -143,18 +149,29 @@ class Route {
     } finally {
       this.patternLoading = false;
     }
+
     this.patterns = [];
+    this.minX = Infinity;
+    this.maxX = -Infinity;
+    this.minY = Infinity;
+    this.maxY = -Infinity;
+
     for (const { pid, pt } of data.ptr) {
-      const pattern = { id: pid, points: [] };
+      const points = [];
       for (const { lon, lat } of pt) {
-        pattern.points.push({
-          x: (lon - biasLon) * biasXScale,
-          y: -(lat - biasLat)
-        });
+        const x = (lon - biasLon) * biasXScale;
+        const y = -(lat - biasLat);
+        if (x < this.minX) this.minX = x;
+        if (x > this.maxX) this.maxX = x;
+        if (y < this.minY) this.minY = y;
+        if (y > this.maxY) this.maxY = y;
+        points.push({ x, y });
       }
-      this.patterns.push(pattern);
+      this.patterns.push({ id: pid, points });
     }
-    this.updateTransform();
+
+    if (this.enabled)
+      render(true);
   }
 
   hasPattern(id) {
@@ -188,6 +205,26 @@ class Route {
             stop.ref();
       }
     }
+  }
+
+  render() {
+    if (!this.patterns)
+      return;
+
+    ctx.beginPath();
+
+    for (const { points } of this.patterns)
+      for (const { x, y } of points)
+        ctx.lineTo(x * canvasResolution - canvasX, y * canvasResolution - canvasY);
+
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = 20;
+    ctx.stroke();
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
 
 }
@@ -362,11 +399,13 @@ export function toggleRoutes() {
 function clearRoutes() {
   while (enabledRoutes.length)
     enabledRoutes[enabledRoutes.length - 1].disable();
+  render();
   saveRoutes();
 }
 
 function handleClick(ev) {
   ev.currentTarget.route.toggle();
+  render();
   saveRoutes();
 }
 
@@ -399,6 +438,7 @@ async function loadRoutes() {
     console.log('Loading routes:', ids);
     for (const id of ids.split(','))
       routes.get(id)?.enable();
+    render();
     resume();
     updateBuses();
   }
@@ -451,26 +491,8 @@ async function _updateBuses() {
     busTimeoutId = setTimeout(_updateBuses, buses.length ? 5000 : 60000);
 }
 
-export function updateTransform(x, y, z) {
-  mapX = x;
-  mapY = y;
-  mapZ = z;
-  let offsetZ = mapZ / routeZ;
-  if (routeZ === undefined || offsetZ < minOffsetZ || offsetZ > maxOffsetZ) {
-    routeZ = mapZ;
-    offsetZ = 1;
-    const off = 0.1 * routeZ | 0;
-    const dim = 2 * off;
-    content.setAttribute('width', dim);
-    content.setAttribute('height', dim);
-    content.setAttribute('viewBox', `${-off},${-off},${dim},${dim}`);
-    for (const route of routes.values())
-      route.updateTransform();
-  }
-  const off = 0.1 * mapZ | 0;
-  map.style.backgroundPosition = `${mapX}px ${mapY}px`;
-  map.style.backgroundSize = `${mapZ * 0.005}px`;
-  content.style.transform = `translate3d(${mapX - off}px,${mapY - off}px,0px) scale(${offsetZ})`;
+function updateTransform() {
+  canvas.style.transform = `translate(${mapX}px, ${mapY}px) scale(${mapZ / canvasResolution}) translate(${canvasX}px, ${canvasY}px)`;
   for (const stop of stops.values())
     stop.updateTransform();
   for (const bus of buses)
@@ -532,6 +554,238 @@ function resume() {
   updateBuses();
 }
 
+//function resize() {
+//  canvas.width = innerWidth;
+//  canvas.height = innerHeight;
+//  gl.viewport(0, 0, canvas.width, canvas.height);
+//  gl.uniform2f(viewScaleLocation, 2 / canvas.width, -2 / canvas.height);
+//  render();
+//}
+
+function render(force = false) {
+  if (!force && !needRender)
+    return;
+  needRender = false;
+  if (!enabledRoutes)
+    return;
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const route of enabledRoutes) {
+    if (route.minX < minX) minX = route.minX;
+    if (route.maxX > maxX) maxX = route.maxX;
+    if (route.minY < minY) minY = route.minY;
+    if (route.maxY > maxY) maxY = route.maxY;
+  }
+
+  minX = (minX * canvasResolution | 0) - 10;
+  maxX = (maxX * canvasResolution | 0) + 10;
+  minY = (minY * canvasResolution | 0) - 10;
+  maxY = (maxY * canvasResolution | 0) + 10;
+  canvas.width = maxX - minX;
+  canvas.height = maxY - minY;
+  canvasX = minX;
+  canvasY = minY;
+
+  canvas.style.transform = `translate(${mapX}px, ${mapY}px) scale(${mapZ / canvasResolution}) translate(${canvasX}px, ${canvasY}px)`;
+
+  for (const route of enabledRoutes)
+    route.render();
+}
+
+//window.addEventListener('resize', resize);
+//resize();
+
+function handleMode(ret) {
+  if (!ret || ret === mode)
+    return;
+  if (mode.animate)
+    cancelAnimationFrame(modeAnimateId);
+  mode = ret;
+  if (mode.enter)
+    mode.enter();
+  if (mode.animate)
+    modeAnimateId = requestAnimationFrame(handleAnimate);
+}
+
+const idle = {
+
+  down(p, x, y) {
+    p1 = p;
+    p1x = x;
+    p1y = y;
+    panTime = performance.now();
+    panDeltaTime = 0;
+    closeRoutes();
+    deselectStop();
+    return pan;
+  }
+
+};
+
+const pan = {
+
+  down(p, x, y) {
+    p2 = p;
+    p2x = x;
+    p2y = y;
+    pinchDist = Math.hypot(p2x - p1x, p2y - p1y);
+    return pinch;
+  },
+
+  move(p, x, y) {
+    if (p !== p1 || (x === p1x && y === p1y))
+      return;
+    const now = performance.now();
+    panDeltaTime = now - panTime;
+    panDeltaX = x - p1x;
+    panDeltaY = y - p1y;
+    panTime = now;
+    p1x = x;
+    p1y = y;
+    mapX += panDeltaX;
+    mapY += panDeltaY;
+    updateTransform();
+  },
+
+  up(p) {
+    if (p !== p1)
+      return;
+    if (!panDeltaTime) {
+      if (panDeltaTime === null)
+        return idle;
+      const stop = getNearestStop((p1x - mapX) / mapZ, (p1y - mapY) / mapZ);
+      if (!stop)
+        return idle;
+//    mapX = innerWidth * 1.6 - stop.x * mapZ;
+//    mapY = innerHeight * 1.6 - stop.y * mapZ;
+//    updateTransform();
+      stop.select();
+      return idle;
+    }
+    const delta = Math.hypot(panDeltaX, panDeltaY);
+    panSpeed = delta / panDeltaTime;
+    panFactorX = panDeltaX / delta;
+    panFactorY = panDeltaY / delta;
+    return slide;
+  }
+
+}
+
+const slide = {
+
+  down(p, x, y) {
+    p1 = p;
+    p1x = x;
+    p1y = y;
+    panTime = performance.now();
+    panDeltaTime = 0;
+    return pan;
+  },
+
+  animate() {
+    const now = performance.now();
+    panDeltaTime = now - panTime;
+    panTime = now;
+    panSpeed -= (panDragCoefficient * panSpeed * panSpeed + panFriction) * panDeltaTime;
+    if (panSpeed <= 0)
+      return idle;
+    const delta = panSpeed * panDeltaTime;
+    mapX += delta * panFactorX;
+    mapY += delta * panFactorY;
+    updateTransform();
+  }
+
+};
+
+const pinch = {
+
+  down() {
+    return idle;
+  },
+
+  move(p, x, y) {
+    const o1x = p1x, o1y = p1y;
+    const o2x = p2x, o2y = p2y;
+    if (p === p1) {
+      if (p1x === x && p1y === y)
+        return;
+      p1x = x;
+      p1y = y;
+    } else if (p === p2) {
+      if (p2x === x && p2y === y)
+        return;
+      p2x = x;
+      p2y = y;
+    } else {
+      return;
+    }
+    const oldDist = pinchDist;
+    const oldScale = mapZ;
+    pinchDist = Math.hypot(p2x - p1x, p2y - p1y);
+    mapZ = Math.max(minScale, Math.min(maxScale, mapZ * pinchDist / oldDist));
+    const offsetZ = mapZ / oldScale;
+    mapX = (mapX - (o1x + o2x) / 2) * offsetZ + (p1x + p2x) / 2;
+    mapY = (mapY - (o1y + o2y) / 2) * offsetZ + (p1y + p2y) / 2;
+    updateTransform();
+  },
+
+  up(p) {
+    if (p === p1) {
+      p1 = p2;
+      p1x = p2x;
+      p1y = p2y;
+    } else if (p !== p2) {
+      return;
+    }
+    panTime = performance.now();
+    panDeltaTime = null;
+    return pan;
+  }
+
+};
+
+mode = idle;
+
+function handleAnimate() {
+  modeAnimateId = requestAnimationFrame(handleAnimate);
+  handleMode(mode.animate());
+}
+
+function handlePointerDown(ev) {
+  if (mode.down)
+    handleMode(mode.down(ev.pointerId, ev.offsetX, ev.offsetY));
+}
+
+function handlePointerMove(ev) {
+  if (mode.move)
+    handleMode(mode.move(ev.pointerId, ev.offsetX, ev.offsetY));
+}
+
+function handlePointerUp(ev) {
+  if (mode.up)
+    handleMode(mode.up(ev.pointerId));
+}
+
+function handleWheel(ev) {
+  const oldScale = mapZ;
+  mapZ = Math.max(minScale, Math.min(maxScale, mapZ * Math.pow(2, -zoomIncrement * ev.deltaY)));
+  if (mapZ === oldScale)
+    return;
+  // s0 F + T0 = s1 F + T1
+  // T1 = s0 F - s1 F + T0
+  // T1 = (s0 - s1) F + T0
+  mapX += (1 - mapZ / oldScale) * (ev.offsetX - mapX);
+  mapY += (1 - mapZ / oldScale) * (ev.offsetY - mapY);
+  updateTransform();
+}
+
+map.addEventListener('pointerdown', handlePointerDown);
+map.addEventListener('pointermove', handlePointerMove);
+map.addEventListener('pointerup', handlePointerUp);
+map.addEventListener('pointerleave', handlePointerUp);
+map.addEventListener('pointercancel', handlePointerUp);
+map.addEventListener('wheel', handleWheel, { passive: true });
+
 document.addEventListener('visibilitychange', () => {
   if (document.hidden)
     pause();
@@ -543,4 +797,5 @@ document.querySelector('#routes-button').addEventListener('click', toggleRoutes)
 document.querySelector('#routes-clear-button').addEventListener('click', clearRoutes);
 document.querySelector('#refresh-button').addEventListener('click', () => { location.reload(); });
 
+updateTransform();
 loadRoutes();

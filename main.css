@@ -36,10 +36,6 @@ svg {
   position: absolute;
   overflow: hidden;
   pointer-events: auto;
-  background-image: url('data:image/svg+xml,\
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">\
-  <rect width="32" height="32" fill="none" stroke="%23ccc" />\
-  </svg>');
 }
 
 #map > * {
@@ -47,9 +43,8 @@ svg {
   pointer-events: none;
 }
 
-#map-content {
+#map-canvas {
   transform-origin: 0 0;
-  /* chrome android needs this? */
   will-change: transform;
 }
 

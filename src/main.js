@@ -1,2 +1,1 @@
-import './controls.js';
-import './routes.js';
+import './map.js';
