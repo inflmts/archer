@@ -226,11 +226,15 @@ svg {
   color: red;
 }
 
-.prediction-vid {
+.prediction-num {
   padding: 0.125rem 0.25rem 0.125rem 0;
-  min-width: 2.25rem;
+  min-width: 3rem;
   font-size: smaller;
-  color: gray;
+  display: none;
+}
+
+.show-numbers .prediction-num {
+  display: block;
 }
 
 .prediction-dest {
@@ -294,7 +298,19 @@ body > button {
 }
 
 #info-button {
+  top: 1rem;
+  left: 1rem;
+  font-size: 1.5rem;
+}
+
+#number-button {
   bottom: 1rem;
   right: 13rem;
-  font-size: 2rem;
+  font-size: 1.5rem;
+  border: 0.25rem solid black;
+}
+
+.show-numbers #number-button {
+  background-color: white;
+  color: black;
 }

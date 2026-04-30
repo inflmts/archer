@@ -324,7 +324,7 @@ class Stop {
         return {
           route: routes.get(prd.rt),
           id: prd.rt,
-          vid: prd.vid,
+          num: `#${prd.vid}`,
           dest: prd.des,
           time: prd.prdctdn === 'DUE' ? 'DUE' : `${prd.prdctdn}m`
         };
@@ -344,7 +344,7 @@ class Stop {
       predNoneElement.style.display = null;
       return;
     }
-    for (const { route, id, vid, dest, time } of this.predictions) {
+    for (const { route, id, num, dest, time } of this.predictions) {
       const element = html('li', { class: 'prediction' });
       if (route)
         element.style.setProperty('--color', route.color);
@@ -353,7 +353,7 @@ class Stop {
       element.append(
         html('div', { class: 'prediction-route' }, id),
         html('div', { class: 'prediction-time' + (time === 'DUE' ? ' prediction-due' : '') }, time),
-        html('div', { class: 'prediction-vid' }, vid),
+        html('div', { class: 'prediction-num' }, num),
         html('div', { class: 'prediction-dest' }, dest)
       );
       predListElement.append(element);
@@ -376,6 +376,10 @@ function closeRoutes() {
 
 function toggleRoutes() {
   document.body.classList.toggle('routes-open');
+}
+
+function toggleNumbers() {
+  document.body.classList.toggle('show-numbers');
 }
 
 function clearRoutes() {
@@ -770,9 +774,10 @@ document.addEventListener('visibilitychange', () => {
     resume();
 });
 
-document.querySelector('#routes-button').addEventListener('click', toggleRoutes);
-document.querySelector('#routes-clear-button').addEventListener('click', clearRoutes);
-document.querySelector('#refresh-button').addEventListener('click', () => { location.reload(); });
+$('routes-button').addEventListener('click', toggleRoutes);
+$('routes-clear-button').addEventListener('click', clearRoutes);
+$('refresh-button').addEventListener('click', () => { location.reload(); });
+$('number-button').addEventListener('click', toggleNumbers);
 
 updateTransform();
 loadRoutes();
