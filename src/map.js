@@ -366,15 +366,15 @@ function refreshPredictions() {
   currentStop.refreshPredictions();
 }
 
-export function openRoutes() {
+function openRoutes() {
   document.body.classList.add('routes-open');
 }
 
-export function closeRoutes() {
+function closeRoutes() {
   document.body.classList.remove('routes-open');
 }
 
-export function toggleRoutes() {
+function toggleRoutes() {
   document.body.classList.toggle('routes-open');
 }
 
@@ -391,7 +391,7 @@ function handleClick(ev) {
   saveRoutes();
 }
 
-export function saveRoutes() {
+function saveRoutes() {
   if (!enabledRoutes)
     return;
   let ids;
@@ -487,24 +487,24 @@ function clearPredictions() {
     predListElement.removeChild(predListElement.lastChild);
 }
 
-export function updatePredictions() {
+function updatePredictions() {
   if (currentStop)
     currentStop.updatePredictions();
 }
 
-export function deselectStop() {
+function deselectStop() {
   if (currentStop)
     currentStop.deselect();
 }
 
-export function addStop(id, name, lon, lat) {
+function addStop(id, name, lon, lat) {
   let stop = stops.get(id);
   if (!stop)
     stops.set(id, stop = new Stop(id, name, lon, lat));
   return stop;
 }
 
-export function getNearestStop(x, y) {
+function getNearestStop(x, y) {
   let nearest = null;
   let nearestDistSq = Infinity;
   for (const stop of stops.values()) {
@@ -535,14 +535,6 @@ function resume() {
   paused = false;
   updateBuses();
 }
-
-//function resize() {
-//  canvas.width = innerWidth;
-//  canvas.height = innerHeight;
-//  gl.viewport(0, 0, canvas.width, canvas.height);
-//  gl.uniform2f(viewScaleLocation, 2 / canvas.width, -2 / canvas.height);
-//  render();
-//}
 
 function render(force = false) {
   if (!force && !needRender)
@@ -582,9 +574,6 @@ function render(force = false) {
     }
   }
 }
-
-//window.addEventListener('resize', resize);
-//resize();
 
 function handleMode(ret) {
   if (!ret || ret === mode)
@@ -647,9 +636,6 @@ const pan = {
       const stop = getNearestStop((p1x - mapX) / mapZ, (p1y - mapY) / mapZ);
       if (!stop)
         return idle;
-//    mapX = innerWidth * 1.6 - stop.x * mapZ;
-//    mapY = innerHeight * 1.6 - stop.y * mapZ;
-//    updateTransform();
       stop.select();
       return idle;
     }
